@@ -1,0 +1,1641 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>焚凰蝶彩票 | Phoenix Lottery</title>
+  <!-- Vue 3 -->
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <!-- ethers.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.8.1/ethers.umd.min.js"></script>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; color: white; }
+    .glass { background: rgba(255, 255, 255, 0.15); backdrop-filter: blur(10px); border-radius: 16px; border: 1px solid rgba(255,255,255,0.2); }
+    .lang-switch { position: fixed; top: 20px; right: 20px; z-index: 1000; }
+    .lang-btn { background: rgba(255, 255, 255, 0.2); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 8px 16px; border-radius: 20px; cursor: pointer; transition: all 0.3s; }
+    .lang-btn:hover { background: rgba(255, 255, 255, 0.3); }
+    .lang-btn.active { background: rgba(255, 255, 255, 0.4); border-color: white; }
+    .tab-btn { background: rgba(255, 255, 255, 0.1); border: none; padding: 12px 24px; color: white; cursor: pointer; transition: all 0.3s; }
+    .tab-btn.active { background: rgba(255, 255, 255, 0.25); border-bottom: 2px solid white; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    .winner-address { 
+      font-family: monospace; 
+      background: rgba(0, 0, 0, 0.2); 
+      padding: 8px 12px; 
+      border-radius: 8px; 
+      word-break: break-all;
+    }
+    .network-indicator {
+      position: fixed;
+      top: 80px;
+      right: 20px;
+      background: rgba(0, 0, 0, 0.3);
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      z-index: 999;
+    }
+    .network-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .network-connected {
+      background: #10b981;
+    }
+    .network-disconnected {
+      background: #ef4444;
+    }
+    .stat-card {
+      transition: all 0.3s ease;
+    }
+    .stat-card:hover {
+      transform: translateY(-5px);
+    }
+    .progress-bar {
+      height: 8px;
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 4px;
+      overflow: hidden;
+      margin-top: 8px;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #f59e0b, #ef4444);
+      transition: width 0.5s ease;
+    }
+    .history-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .history-table th {
+      text-align: left;
+      padding: 12px;
+      background: rgba(0, 0, 0, 0.2);
+      font-weight: 600;
+    }
+    .history-table td {
+      padding: 12px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .history-table tr:hover {
+      background: rgba(255, 255, 255, 0.05);
+    }
+  </style>
+</head>
+<body class="font-sans">
+  <div id="app">
+    <!-- 语言切换按钮 -->
+    <div class="lang-switch flex gap-2">
+      <button 
+        @click="switchLanguage('zh')" 
+        :class="{ 'active': currentLang === 'zh' }" 
+        class="lang-btn"
+      >
+        中文
+      </button>
+      <button 
+        @click="switchLanguage('en')" 
+        :class="{ 'active': currentLang === 'en' }" 
+        class="lang-btn"
+      >
+        English
+      </button>
+    </div>
+
+    <!-- 网络状态指示器 -->
+    <div v-if="networkStatus !== 'disconnected'" class="network-indicator">
+      <span class="network-dot" :class="{
+        'network-connected': networkStatus === 'connected',
+        'network-disconnected': networkStatus === 'wrong-network'
+      }"></span>
+      <span v-if="networkStatus === 'connected'">{{ t('connectedToBsc') }}</span>
+      <span v-if="networkStatus === 'wrong-network'">{{ t('wrongNetwork') }}</span>
+    </div>
+
+    <div class="container mx-auto px-4 py-8 max-w-6xl">
+      <!-- 标题 + 连接钱包 -->
+      <div class="text-center mb-10">
+        <h1 class="text-5xl font-bold mb-6">{{ t('pageTitle') }}</h1>
+        <div class="flex flex-col items-center gap-4 mb-8">
+          <button 
+            @click="initiateWalletConnection" 
+            :disabled="isConnecting"
+            class="glass px-8 py-4 rounded-xl text-xl font-semibold hover:bg-white/20 transition disabled:opacity-50 min-w-[200px]"
+          >
+            <span v-if="isConnecting">{{ t('connecting') }}</span>
+            <span v-else-if="account">
+              <span class="flex items-center justify-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-green-400"></span>
+                {{ formatAddress(account) }}
+              </span>
+            </span>
+            <span v-else>{{ t('connectWallet') }}</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 标签页导航 -->
+      <div class="flex mb-8 overflow-x-auto">
+        <button 
+          @click="activeTab = 'dashboard'" 
+          :class="{ 'active': activeTab === 'dashboard' }"
+          class="tab-btn rounded-t-lg"
+        >
+          {{ t('dashboard') }}
+        </button>
+        <button 
+          @click="activeTab = 'buy'" 
+          :class="{ 'active': activeTab === 'buy' }"
+          class="tab-btn rounded-t-lg"
+        >
+          {{ t('buyTickets') }}
+        </button>
+        <button 
+          @click="activeTab = 'history'" 
+          :class="{ 'active': activeTab === 'history' }"
+          class="tab-btn rounded-t-lg"
+        >
+          {{ t('history') }}
+        </button>
+        <button 
+          @click="activeTab = 'winners'" 
+          :class="{ 'active': activeTab === 'winners' }"
+          class="tab-btn rounded-t-lg"
+        >
+          {{ t('winners') }}
+        </button>
+        <button 
+          @click="activeTab = 'stats'" 
+          :class="{ 'active': activeTab === 'stats' }"
+          class="tab-btn rounded-t-lg"
+        >
+          {{ t('statistics') }}
+        </button>
+      </div>
+
+      <!-- 仪表板标签页 -->
+      <div :class="{ 'active': activeTab === 'dashboard' }" class="tab-content">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          <!-- 当前奖池 -->
+          <div class="glass p-6 text-center stat-card">
+            <p class="text-lg opacity-80 mb-2">{{ t('currentPool') }}</p>
+            <p class="text-4xl font-bold">{{ formatNumber(poolBNB) }} {{ t('bnb') }}</p>
+            <p class="text-sm mt-2 opacity-70">{{ t('totalValue') }}</p>
+          </div>
+
+          <!-- 当轮彩票总数 -->
+          <div class="glass p-6 text-center stat-card">
+            <p class="text-lg opacity-80 mb-2">{{ t('totalTickets') }}</p>
+            <p class="text-4xl font-bold">{{ formatNumber(totalTickets) }}</p>
+            <p class="text-sm mt-2 opacity-70">{{ t('ticketsSold') }}</p>
+          </div>
+
+          <!-- 我的票数 -->
+          <div class="glass p-6 text-center stat-card">
+            <p class="text-lg opacity-80 mb-2">{{ t('myTickets') }}</p>
+            <p class="text-4xl font-bold">{{ formatNumber(userTickets) }}</p>
+            <p class="text-sm mt-2 opacity-70">{{ t('inThisRound') }}</p>
+          </div>
+        </div>
+
+        <!-- 开奖条件进度 -->
+        <div class="glass p-6 mb-8">
+          <h2 class="text-2xl font-semibold mb-4 text-center">{{ t('drawConditions') }}</h2>
+          
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- 代币数量条件 -->
+            <div>
+              <div class="flex justify-between mb-2">
+                <span class="opacity-80">{{ t('minTokensRequired') }}</span>
+                <span class="font-semibold">{{ formatNumber(totalTokens) }} / 1,000,000 {{ t('phoenixToken') }}</span>
+              </div>
+              <div class="progress-bar">
+                <div class="progress-fill" :style="{ width: Math.min((totalTokens / 1000000) * 100, 100) + '%' }"></div>
+              </div>
+              <p class="text-sm mt-2 opacity-70" v-if="totalTokens < 1000000">
+                {{ t('needMoreTokens') }} {{ formatNumber(1000000 - totalTokens) }} {{ t('phoenixToken') }}
+              </p>
+              <p class="text-sm mt-2 text-green-300" v-else>
+                ✅ {{ t('tokenConditionMet') }}
+              </p>
+            </div>
+
+            <!-- 区块条件 -->
+            <div>
+              <div class="flex justify-between mb-2">
+                <span class="opacity-80">{{ t('blocksUntilDraw') }}</span>
+                <span class="font-semibold">{{ blocksRemaining }} / {{ blockInterval }} {{ t('blocks') }}</span>
+              </div>
+              <div class="progress-bar">
+                <div class="progress-fill" :style="{ width: Math.min(((blockInterval - blocksRemaining) / blockInterval) * 100, 100) + '%' }"></div>
+              </div>
+              <p class="text-sm mt-2 opacity-70" v-if="blocksRemaining > 0">
+                {{ t('approxTimeRemaining') }} {{ formatTimeFromBlocks(blocksRemaining) }}
+              </p>
+              <p class="text-sm mt-2 text-green-300" v-else>
+                ✅ {{ t('blockConditionMet') }}
+              </p>
+            </div>
+          </div>
+
+          <!-- 开奖状态 -->
+          <div class="mt-6 p-4 bg-black/20 rounded-lg text-center">
+            <p class="text-lg font-semibold mb-2">{{ t('drawStatus') }}</p>
+            <p class="text-xl" :class="{ 'text-green-300': canDraw, 'text-yellow-300': !canDraw }">
+              <span v-if="canDraw">🎉 {{ t('readyToDraw') }}</span>
+              <span v-else>⏳ {{ t('waitingForConditions') }}</span>
+            </p>
+            <p class="text-sm mt-2 opacity-70">
+              {{ t('chainlinkAutoDraw') }}
+            </p>
+          </div>
+        </div>
+
+        <!-- 当前轮次信息 -->
+        <div class="glass p-6">
+          <h2 class="text-2xl font-semibold mb-4">{{ t('currentRoundInfo') }}</h2>
+          
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="text-center">
+              <p class="opacity-80">{{ t('startBlock') }}</p>
+              <p class="text-xl font-bold">#{{ startBlock || '--' }}</p>
+            </div>
+            
+            <div class="text-center">
+              <p class="opacity-80">{{ t('currentBlock') }}</p>
+              <p class="text-xl font-bold">#{{ currentBlock || '--' }}</p>
+            </div>
+            
+            <div class="text-center">
+              <p class="opacity-80">{{ t('roundStatus') }}</p>
+              <p class="text-xl font-bold" :class="{ 'text-green-300': isRoundActive, 'text-red-300': !isRoundActive }">
+                {{ isRoundActive ? t('active') : t('notStarted') }}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 购买彩票标签页 -->
+      <div :class="{ 'active': activeTab === 'buy' }" class="tab-content">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <!-- 我的余额 -->
+          <div class="glass p-6">
+            <h2 class="text-2xl font-semibold mb-4">{{ t('myWallet') }}</h2>
+            
+            <div class="space-y-4">
+              <div>
+                <p class="opacity-80 mb-2">{{ t('phoenixTokenBalance') }}</p>
+                <p class="text-3xl font-bold">{{ formatNumber(userBalance) }} {{ t('phoenixToken') }}</p>
+              </div>
+              
+              <div>
+                <p class="opacity-80 mb-2">{{ t('bnbBalance') }}</p>
+                <p class="text-3xl font-bold">{{ formatNumber(userBNB) }} {{ t('bnb') }}</p>
+              </div>
+              
+              <!-- 授权状态 -->
+              <div class="mt-6 p-4 bg-black/20 rounded-lg">
+                <div class="flex items-center justify-between mb-2">
+                  <span class="opacity-80">{{ t('tokenApproval') }}</span>
+                  <span class="font-semibold" :class="{ 'text-green-300': isTokenApproved, 'text-red-300': !isTokenApproved }">
+                    {{ isTokenApproved ? t('approved') : t('notApproved') }}
+                  </span>
+                </div>
+                <button 
+                  v-if="account && !isTokenApproved"
+                  @click="approveToken"
+                  :disabled="approvalInProgress"
+                  class="w-full glass py-3 rounded-lg hover:bg-white/20 transition mt-2"
+                >
+                  <span v-if="approvalInProgress">{{ t('approving') }}</span>
+                  <span v-else>{{ t('approveToken') }}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 购买彩票 -->
+          <div class="glass p-6">
+            <h2 class="text-2xl font-semibold mb-4">{{ t('buyTickets') }}</h2>
+            
+            <div class="space-y-6">
+              <div>
+                <label class="block text-lg mb-4">{{ t('selectTicketAmount') }}</label>
+                
+                <!-- 快速选择按钮 -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+                  <button 
+                    v-for="amount in [1, 5, 10, 50]" 
+                    :key="amount"
+                    @click="setTicketAmount(amount)"
+                    :class="{ 'bg-white/30': ticketAmount === amount }"
+                    class="glass py-4 rounded-lg hover:bg-white/20 transition text-center"
+                    :disabled="transactionInProgress || !account"
+                  >
+                    <div class="text-2xl font-bold">{{ amount }}</div>
+                    <div class="text-sm opacity-70">{{ t('tickets') }}</div>
+                  </button>
+                </div>
+                
+                <!-- 自定义输入 -->
+                <div class="mb-6">
+                  <label class="block opacity-80 mb-2">{{ t('customAmount') }}</label>
+                  <div class="flex items-center gap-3">
+                    <input 
+                      v-model="ticketAmount" 
+                      type="number" 
+                      min="1" 
+                      max="1000"
+                      class="flex-1 px-4 py-3 text-black text-xl rounded-lg"
+                      :disabled="transactionInProgress || !account"
+                    />
+                    <div class="glass px-4 py-3 rounded-lg text-center min-w-[100px]">
+                      <div class="text-sm opacity-70">{{ t('tickets') }}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- 购买信息 -->
+              <div class="p-4 bg-black/20 rounded-lg">
+                <div class="flex justify-between mb-2">
+                  <span class="opacity-80">{{ t('totalCost') }}</span>
+                  <span class="text-xl font-bold">{{ calculateTotalCost() }} {{ t('phoenixToken') }}</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="opacity-80">{{ t('yourBalance') }}</span>
+                  <span class="text-xl" :class="{ 'text-green-300': hasSufficientBalance, 'text-red-300': !hasSufficientBalance }">
+                    {{ formatNumber(userBalance) }} {{ t('phoenixToken') }}
+                  </span>
+                </div>
+              </div>
+              
+              <!-- 购买按钮 -->
+              <button 
+                @click="buyTickets"
+                :disabled="!account || transactionInProgress || !hasSufficientBalance || !isRoundActive"
+                :class="{
+                  'opacity-50 cursor-not-allowed': !account || transactionInProgress || !hasSufficientBalance || !isRoundActive,
+                  'cursor-wait': transactionInProgress,
+                  'bg-gradient-to-r from-pink-500 to-yellow-500': account && hasSufficientBalance && isRoundActive
+                }"
+                class="w-full text-white font-bold py-4 px-8 rounded-xl text-2xl"
+              >
+                <span v-if="transactionInProgress">{{ t('processing') }}</span>
+                <span v-else-if="!account">{{ t('connectToBuy') }}</span>
+                <span v-else-if="!hasSufficientBalance">{{ t('insufficientBalance') }}</span>
+                <span v-else-if="!isRoundActive">{{ t('roundNotActive') }}</span>
+                <span v-else>{{ t('buyTicketsNow') }}</span>
+              </button>
+              
+              <!-- 交易状态 -->
+              <div v-if="transactionStatus.message" 
+                :class="{
+                  'text-green-300': transactionStatus.type === 'success',
+                  'text-red-300': transactionStatus.type === 'error',
+                  'text-yellow-200': transactionStatus.type === 'info'
+                }"
+                class="text-center p-3 rounded-lg bg-black/20"
+              >
+                {{ transactionStatus.message }}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 历史记录标签页 -->
+      <div :class="{ 'active': activeTab === 'history' }" class="tab-content">
+        <div class="glass p-6">
+          <h2 class="text-2xl font-semibold mb-4">{{ t('purchaseHistory') }}</h2>
+          
+          <div v-if="loadingHistory" class="text-center py-8">
+            <p>{{ t('loading') }}</p>
+          </div>
+          
+          <div v-else-if="purchaseHistory.length === 0" class="text-center py-8">
+            <p class="opacity-70">{{ t('noPurchaseHistory') }}</p>
+            <p class="text-sm mt-2 opacity-50">{{ t('buyTicketsToSeeHistory') }}</p>
+          </div>
+          
+          <div v-else class="overflow-x-auto">
+            <table class="history-table">
+              <thead>
+                <tr>
+                  <th>{{ t('date') }}</th>
+                  <th>{{ t('tickets') }}</th>
+                  <th>{{ t('amount') }}</th>
+                  <th>{{ t('transaction') }}</th>
+                  <th>{{ t('round') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="purchase in purchaseHistory" :key="purchase.id">
+                  <td>{{ formatDate(purchase.created_at) }}</td>
+                  <td>{{ purchase.tickets }}</td>
+                  <td>{{ formatNumber(purchase.amount) }} {{ t('phoenixToken') }}</td>
+                  <td>
+                    <a :href="`https://bscscan.com/tx/${purchase.transaction_hash}`" 
+                       target="_blank" 
+                       class="text-blue-200 hover:underline">
+                      {{ formatAddress(purchase.transaction_hash) }}
+                    </a>
+                  </td>
+                  <td>#{{ purchase.round_id }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          
+          <div class="mt-4 flex justify-between items-center">
+            <button 
+              @click="loadPurchaseHistory" 
+              :disabled="loadingHistory"
+              class="glass px-4 py-2 rounded-lg hover:bg-white/20 transition"
+            >
+              {{ t('refresh') }}
+            </button>
+            <p class="text-sm opacity-70">{{ t('totalRecords') }}: {{ purchaseHistory.length }}</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 中奖者标签页 -->
+      <div :class="{ 'active': activeTab === 'winners' }" class="tab-content">
+        <div class="glass p-6">
+          <h2 class="text-2xl font-semibold mb-4">{{ t('pastWinners') }}</h2>
+          
+          <div v-if="loadingWinners" class="text-center py-8">
+            <p>{{ t('loading') }}</p>
+          </div>
+          
+          <div v-else-if="winners.length === 0" class="text-center py-8">
+            <p class="opacity-70">{{ t('noWinnersYet') }}</p>
+            <p class="text-sm mt-2 opacity-50">{{ t('beFirstWinner') }}</p>
+          </div>
+          
+          <div v-else class="space-y-4">
+            <div v-for="winner in winners" :key="winner.id" class="p-4 bg-black/20 rounded-lg">
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <p class="opacity-80">{{ t('winner') }}</p>
+                  <p class="text-lg font-semibold">
+                    <a :href="`https://bscscan.com/address/${winner.winner_address}`" 
+                       target="_blank" 
+                       class="text-blue-200 hover:underline">
+                      {{ formatAddress(winner.winner_address) }}
+                    </a>
+                  </p>
+                </div>
+                <div>
+                  <p class="opacity-80">{{ t('prize') }}</p>
+                  <p class="text-lg font-semibold">{{ formatNumber(winner.prize) }} {{ t('bnb') }}</p>
+                </div>
+                <div>
+                  <p class="opacity-80">{{ t('date') }}</p>
+                  <p class="text-lg">{{ formatDate(winner.draw_time) }}</p>
+                </div>
+              </div>
+              <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <p class="text-sm opacity-80">{{ t('round') }} #{{ winner.round_id }}</p>
+                  <p class="text-sm">{{ t('totalTickets') }}: {{ winner.total_tickets }}</p>
+                </div>
+                <div>
+                  <p class="text-sm opacity-80">{{ t('totalTokens') }}</p>
+                  <p class="text-sm">{{ formatNumber(winner.total_tokens) }} {{ t('phoenixToken') }}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="mt-4 flex justify-between items-center">
+            <button 
+              @click="loadWinners" 
+              :disabled="loadingWinners"
+              class="glass px-4 py-2 rounded-lg hover:bg-white/20 transition"
+            >
+              {{ t('refresh') }}
+            </button>
+            <p class="text-sm opacity-70">{{ t('totalWinners') }}: {{ winners.length }}</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 统计数据标签页 -->
+      <div :class="{ 'active': activeTab === 'stats' }" class="tab-content">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div class="glass p-6">
+            <h2 class="text-2xl font-semibold mb-4">{{ t('overallStatistics') }}</h2>
+            
+            <div v-if="loadingStats" class="text-center py-8">
+              <p>{{ t('loading') }}</p>
+            </div>
+            
+            <div v-else class="space-y-4">
+              <div class="flex justify-between items-center">
+                <span class="opacity-80">{{ t('totalRounds') }}</span>
+                <span class="text-xl font-bold">{{ stats.total_rounds || 0 }}</span>
+              </div>
+              
+              <div class="flex justify-between items-center">
+                <span class="opacity-80">{{ t('totalWinners') }}</span>
+                <span class="text-xl font-bold">{{ stats.total_winners || 0 }}</span>
+              </div>
+              
+              <div class="flex justify-between items-center">
+                <span class="opacity-80">{{ t('totalTicketsSold') }}</span>
+                <span class="text-xl font-bold">{{ formatNumber(stats.total_tickets || 0) }}</span>
+              </div>
+              
+              <div class="flex justify-between items-center">
+                <span class="opacity-80">{{ t('totalTokensBurned') }}</span>
+                <span class="text-xl font-bold">{{ formatNumber(stats.total_tokens_burned || 0) }} {{ t('phoenixToken') }}</span>
+              </div>
+              
+              <div class="flex justify-between items-center">
+                <span class="opacity-80">{{ t('totalPrizesDistributed') }}</span>
+                <span class="text-xl font-bold">{{ formatNumber(stats.total_prizes || 0) }} {{ t('bnb') }}</span>
+              </div>
+              
+              <div class="mt-6 p-4 bg-black/20 rounded-lg">
+                <h3 class="font-semibold mb-2">{{ t('largestPrize') }}</h3>
+                <p v-if="stats.largest_prize" class="text-xl font-bold">
+                  {{ formatNumber(stats.largest_prize.prize) }} {{ t('bnb') }}
+                </p>
+                <p v-if="stats.largest_prize" class="text-sm opacity-70">
+                  {{ t('inRound') }} #{{ stats.largest_prize.round_id }}
+                </p>
+              </div>
+            </div>
+          </div>
+          
+          <div class="glass p-6">
+            <h2 class="text-2xl font-semibold mb-4">{{ t('userStatistics') }}</h2>
+            
+            <div v-if="loadingUserStats" class="text-center py-8">
+              <p>{{ t('loading') }}</p>
+            </div>
+            
+            <div v-else-if="!account" class="text-center py-8">
+              <p class="opacity-70">{{ t('connectWalletToSeeStats') }}</p>
+            </div>
+            
+            <div v-else class="space-y-4">
+              <div class="flex justify-between items-center">
+                <span class="opacity-80">{{ t('myTotalTickets') }}</span>
+                <span class="text-xl font-bold">{{ formatNumber(userStats.total_tickets || 0) }}</span>
+              </div>
+              
+              <div class="flex justify-between items-center">
+                <span class="opacity-80">{{ t('myTotalSpent') }}</span>
+                <span class="text-xl font-bold">{{ formatNumber(userStats.total_spent || 0) }} {{ t('phoenixToken') }}</span>
+              </div>
+              
+              <div class="flex justify-between items-center">
+                <span class="opacity-80">{{ t('myTotalWins') }}</span>
+                <span class="text-xl font-bold">{{ userStats.total_wins || 0 }}</span>
+              </div>
+              
+              <div class="flex justify-between items-center">
+                <span class="opacity-80">{{ t('myTotalPrizes') }}</span>
+                <span class="text-xl font-bold">{{ formatNumber(userStats.total_prizes || 0) }} {{ t('bnb') }}</span>
+              </div>
+              
+              <div v-if="userStats.largest_prize" class="mt-6 p-4 bg-black/20 rounded-lg">
+                <h3 class="font-semibold mb-2">{{ t('myLargestPrize') }}</h3>
+                <p class="text-xl font-bold">
+                  {{ formatNumber(userStats.largest_prize.prize) }} {{ t('bnb') }}
+                </p>
+                <p class="text-sm opacity-70">
+                  {{ t('inRound') }} #{{ userStats.largest_prize.round_id }}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 合约信息 -->
+      <div class="mt-8 text-center opacity-70 text-sm">
+        <p>{{ t('contractAddress') }}: 
+          <a href="https://bscscan.com/address/0x90cf4b70535C44bE6ACDFDde6D3ccE765decc71E" target="_blank" class="underline">
+            0x90cf4b...cc71E
+          </a>
+        </p>
+        <p class="mt-2">{{ t('databasePoweredBy') }} Neon + Netlify</p>
+      </div>
+    </div>
+
+    <!-- 加载动画 -->
+    <div 
+      v-if="loading"
+      class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+    >
+      <div class="glass p-8 rounded-xl flex flex-col items-center">
+        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div>
+        <p class="mt-4">{{ loadingText }}</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const { createApp, reactive, ref, computed, onMounted, watch, onUnmounted } = Vue;
+    
+    // 合约配置
+    const CONTRACT_ADDRESS = "0x90cf4b70535C44bE6ACDFDde6D3ccE765decc71E";
+    const PHOENIX_TOKEN = "0xD2bB25BB3bae978A19e79401A8A804CEba967777";
+    const QUICKNODE_RPC = "https://dry-multi-wave.bsc.quiknode.pro/fef765e3b6fe179dcb7952f229da30a016c9e6ac";
+    
+    // API 端点 - 使用 Netlify Functions
+    const API_BASE = window.location.hostname.includes('netlify') ? '/.netlify/functions' : '/api';
+    
+    // ABI
+    const CONTRACT_ABI = [
+      "function deposit(uint256 tickets) external",
+      "function getCurrentRoundTotalTickets() external view returns (uint256)",
+      "function getCurrentPoolBNB() external view returns (uint256)",
+      "function getCurrentRoundInfo() external view returns (uint256 totalTickets_, uint256 poolBNB_, uint256 currentBlock_, uint256 startBlock_, uint256 interval_, bool isActive_)",
+      "function getBlockInterval() external view returns (uint256)",
+      "function getTicketThreshold() external view returns (uint256)",
+      "function isRoundActive() external view returns (bool)",
+      "function participantTickets(address) external view returns (uint256)",
+      "function totalTickets() external view returns (uint256)",
+      "function totalTokens() external view returns (uint256)",
+      "function startBlock() external view returns (uint256)"
+    ];
+    
+    const TOKEN_ABI = [
+      "function balanceOf(address) external view returns (uint256)",
+      "function approve(address, uint256) external returns (bool)",
+      "function allowance(address, address) external view returns (uint256)",
+      "function decimals() external view returns (uint8)"
+    ];
+    
+    // BSC网络配置
+    const BSC_NETWORK = {
+      chainId: '0x38',
+      chainName: 'BNB Smart Chain Mainnet',
+      nativeCurrency: {
+        name: 'BNB',
+        symbol: 'BNB',
+        decimals: 18
+      },
+      rpcUrls: ['https://bsc-dataseed.binance.org/'],
+      blockExplorerUrls: ['https://bscscan.com/']
+    };
+    
+    // 多语言配置
+    const translations = {
+      zh: {
+        pageTitle: "焚凰蝶彩票",
+        dashboard: "仪表板",
+        buyTickets: "购买彩票",
+        history: "历史记录",
+        winners: "中奖者",
+        statistics: "统计数据",
+        connectWallet: "连接钱包",
+        connecting: "连接中...",
+        connectedToBsc: "已连接到BSC网络",
+        wrongNetwork: "请切换到BSC网络",
+        currentPool: "当前奖池",
+        totalValue: "总价值",
+        totalTickets: "当轮彩票总数",
+        ticketsSold: "已售彩票",
+        myTickets: "我的票数",
+        inThisRound: "本轮已购",
+        drawConditions: "开奖条件",
+        minTokensRequired: "最小代币要求",
+        phoenixToken: "焚凰蝶",
+        needMoreTokens: "还需代币",
+        tokenConditionMet: "代币条件已满足",
+        blocksUntilDraw: "距离开奖区块",
+        blocks: "个区块",
+        approxTimeRemaining: "大约剩余时间",
+        blockConditionMet: "区块条件已满足",
+        drawStatus: "开奖状态",
+        readyToDraw: "已满足开奖条件",
+        waitingForConditions: "等待条件满足",
+        chainlinkAutoDraw: "由Chainlink Automation自动开奖",
+        currentRoundInfo: "当前轮次信息",
+        startBlock: "起始区块",
+        currentBlock: "当前区块",
+        roundStatus: "轮次状态",
+        active: "进行中",
+        notStarted: "未开始",
+        myWallet: "我的钱包",
+        phoenixTokenBalance: "焚凰蝶余额",
+        bnbBalance: "BNB余额",
+        tokenApproval: "代币授权",
+        approved: "已授权",
+        notApproved: "未授权",
+        approving: "授权中...",
+        approveToken: "授权焚凰蝶代币",
+        selectTicketAmount: "选择彩票数量",
+        tickets: "张",
+        customAmount: "自定义数量",
+        totalCost: "总花费",
+        yourBalance: "你的余额",
+        connectToBuy: "连接钱包以购买",
+        insufficientBalance: "余额不足",
+        roundNotActive: "轮次未开始",
+        buyTicketsNow: "立即购买",
+        processing: "处理中...",
+        purchaseHistory: "购买历史",
+        loading: "加载中...",
+        noPurchaseHistory: "暂无购买记录",
+        buyTicketsToSeeHistory: "购买彩票以查看历史记录",
+        date: "日期",
+        amount: "数量",
+        transaction: "交易",
+        round: "轮次",
+        refresh: "刷新",
+        totalRecords: "总记录",
+        pastWinners: "历史中奖者",
+        noWinnersYet: "暂无中奖记录",
+        beFirstWinner: "成为第一个中奖者",
+        winner: "中奖者",
+        prize: "奖金",
+        totalWinners: "总中奖者",
+        overallStatistics: "总体统计",
+        totalRounds: "总轮次",
+        totalWinners: "总中奖者",
+        totalTicketsSold: "总售出彩票",
+        totalTokensBurned: "总销毁代币",
+        totalPrizesDistributed: "总发放奖金",
+        largestPrize: "最大奖金",
+        inRound: "在第",
+        userStatistics: "用户统计",
+        connectWalletToSeeStats: "连接钱包查看统计",
+        myTotalTickets: "我的总票数",
+        myTotalSpent: "我的总花费",
+        myTotalWins: "我的总中奖次数",
+        myTotalPrizes: "我的总奖金",
+        myLargestPrize: "我的最大奖金",
+        contractAddress: "合约地址",
+        databasePoweredBy: "数据库由"
+      },
+      en: {
+        pageTitle: "Phoenix Lottery",
+        dashboard: "Dashboard",
+        buyTickets: "Buy Tickets",
+        history: "History",
+        winners: "Winners",
+        statistics: "Statistics",
+        connectWallet: "Connect Wallet",
+        connecting: "Connecting...",
+        connectedToBsc: "Connected to BSC Network",
+        wrongNetwork: "Please switch to BSC Network",
+        currentPool: "Current Pool",
+        totalValue: "Total Value",
+        totalTickets: "Total Tickets",
+        ticketsSold: "Tickets Sold",
+        myTickets: "My Tickets",
+        inThisRound: "In This Round",
+        drawConditions: "Draw Conditions",
+        minTokensRequired: "Minimum Tokens Required",
+        phoenixToken: "Phoenix Token",
+        needMoreTokens: "Need more tokens",
+        tokenConditionMet: "Token condition met",
+        blocksUntilDraw: "Blocks Until Draw",
+        blocks: "blocks",
+        approxTimeRemaining: "Approx. time remaining",
+        blockConditionMet: "Block condition met",
+        drawStatus: "Draw Status",
+        readyToDraw: "Ready to draw",
+        waitingForConditions: "Waiting for conditions",
+        chainlinkAutoDraw: "Automatically drawn by Chainlink Automation",
+        currentRoundInfo: "Current Round Info",
+        startBlock: "Start Block",
+        currentBlock: "Current Block",
+        roundStatus: "Round Status",
+        active: "Active",
+        notStarted: "Not Started",
+        myWallet: "My Wallet",
+        phoenixTokenBalance: "Phoenix Token Balance",
+        bnbBalance: "BNB Balance",
+        tokenApproval: "Token Approval",
+        approved: "Approved",
+        notApproved: "Not Approved",
+        approving: "Approving...",
+        approveToken: "Approve Phoenix Token",
+        selectTicketAmount: "Select Ticket Amount",
+        tickets: "tickets",
+        customAmount: "Custom Amount",
+        totalCost: "Total Cost",
+        yourBalance: "Your Balance",
+        connectToBuy: "Connect wallet to buy",
+        insufficientBalance: "Insufficient balance",
+        roundNotActive: "Round not active",
+        buyTicketsNow: "Buy Tickets Now",
+        processing: "Processing...",
+        purchaseHistory: "Purchase History",
+        loading: "Loading...",
+        noPurchaseHistory: "No purchase history",
+        buyTicketsToSeeHistory: "Buy tickets to see history",
+        date: "Date",
+        amount: "Amount",
+        transaction: "Transaction",
+        round: "Round",
+        refresh: "Refresh",
+        totalRecords: "Total Records",
+        pastWinners: "Past Winners",
+        noWinnersYet: "No winners yet",
+        beFirstWinner: "Be the first winner",
+        winner: "Winner",
+        prize: "Prize",
+        totalWinners: "Total Winners",
+        overallStatistics: "Overall Statistics",
+        totalRounds: "Total Rounds",
+        totalWinners: "Total Winners",
+        totalTicketsSold: "Total Tickets Sold",
+        totalTokensBurned: "Total Tokens Burned",
+        totalPrizesDistributed: "Total Prizes Distributed",
+        largestPrize: "Largest Prize",
+        inRound: "In Round",
+        userStatistics: "User Statistics",
+        connectWalletToSeeStats: "Connect wallet to see stats",
+        myTotalTickets: "My Total Tickets",
+        myTotalSpent: "My Total Spent",
+        myTotalWins: "My Total Wins",
+        myTotalPrizes: "My Total Prizes",
+        myLargestPrize: "My Largest Prize",
+        contractAddress: "Contract Address",
+        databasePoweredBy: "Database powered by"
+      }
+    };
+    
+    createApp({
+      setup() {
+        // 响应式数据
+        const currentLang = ref(localStorage.getItem('preferredLanguage') || 
+          (navigator.language.startsWith('zh') ? 'zh' : 'en'));
+        
+        const account = ref(localStorage.getItem('connectedAccount') || null);
+        const poolBNB = ref(0);
+        const totalTickets = ref(0);
+        const totalTokens = ref(0);
+        const userBalance = ref(0);
+        const userBNB = ref(0);
+        const userTickets = ref(0);
+        const ticketAmount = ref(1);
+        const transactionInProgress = ref(false);
+        const approvalInProgress = ref(false);
+        const loading = ref(false);
+        const loadingText = ref('');
+        const isConnecting = ref(false);
+        const networkStatus = ref('disconnected');
+        const isTokenApproved = ref(false);
+        const activeTab = ref('dashboard');
+        
+        // 轮次信息
+        const startBlock = ref(0);
+        const currentBlock = ref(0);
+        const blockInterval = ref(2400);
+        const blocksRemaining = ref(0);
+        const isRoundActive = ref(false);
+        const ticketThreshold = ref(1000 * 1e18);
+        
+        // 数据库数据
+        const purchaseHistory = ref([]);
+        const winners = ref([]);
+        const stats = ref({});
+        const userStats = ref({});
+        const loadingHistory = ref(false);
+        const loadingWinners = ref(false);
+        const loadingStats = ref(false);
+        const loadingUserStats = ref(false);
+        
+        // 交易状态
+        const transactionStatus = reactive({
+          message: '',
+          type: ''
+        });
+        
+        // 计算属性
+        const canDraw = computed(() => {
+          return totalTokens.value >= 1000000 * 1e18 && blocksRemaining.value <= 0 && isRoundActive.value;
+        });
+        
+        const hasSufficientBalance = computed(() => {
+          const needed = ticketAmount.value * (ticketThreshold.value / 1e18);
+          return userBalance.value >= needed;
+        });
+        
+        const t = computed(() => (key) => {
+          return translations[currentLang.value][key] || key;
+        });
+        
+        // 合约相关变量
+        let provider = null;
+        let signer = null;
+        let contract = null;
+        let publicContract = null;
+        let tokenContract = null;
+        let publicProvider = null;
+        let refreshInterval = null;
+        
+        // 工具方法
+        const switchLanguage = (lang) => {
+          currentLang.value = lang;
+          localStorage.setItem('preferredLanguage', lang);
+        };
+        
+        const formatAddress = (address) => {
+          if (!address) return '';
+          return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
+        };
+        
+        const formatNumber = (value, decimals = 5) => {
+          if (value === null || value === undefined || isNaN(value)) return '0';
+          if (typeof value === 'string') value = Number(value);
+          
+          if (value >= 1e9) {
+            return (value / 1e9).toFixed(2) + 'B';
+          }
+          if (value >= 1e6) {
+            return (value / 1e6).toFixed(2) + 'M';
+          }
+          if (value >= 1e3) {
+            return (value / 1e3).toFixed(2) + 'K';
+          }
+          
+          return value.toLocaleString(undefined, {
+            minimumFractionDigits: 0,
+            maximumFractionDigits: decimals
+          });
+        };
+        
+        const formatDate = (dateString) => {
+          if (!dateString) return '';
+          const date = new Date(dateString);
+          return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+        };
+        
+        const formatTimeFromBlocks = (blocks) => {
+          const seconds = blocks * 3;
+          const hours = Math.floor(seconds / 3600);
+          const minutes = Math.floor((seconds % 3600) / 60);
+          
+          if (currentLang.value === 'zh') {
+            if (hours > 0) return `${hours}小时${minutes}分钟`;
+            return `${minutes}分钟`;
+          } else {
+            if (hours > 0) return `${hours}h ${minutes}m`;
+            return `${minutes}m`;
+          }
+        };
+        
+        const setTicketAmount = (amount) => {
+          ticketAmount.value = amount;
+        };
+        
+        const calculateTotalCost = () => {
+          const cost = ticketAmount.value * (ticketThreshold.value / 1e18);
+          return formatNumber(cost, 0);
+        };
+        
+        const showLoading = (textKey) => {
+          loadingText.value = t.value(textKey);
+          loading.value = true;
+        };
+        
+        const hideLoading = () => {
+          loading.value = false;
+          loadingText.value = '';
+        };
+        
+        const showTransactionStatus = (message, type = 'info', duration = 5000) => {
+          transactionStatus.message = message;
+          transactionStatus.type = type;
+          
+          if (duration > 0) {
+            setTimeout(() => {
+              transactionStatus.message = '';
+              transactionStatus.type = '';
+            }, duration);
+          }
+        };
+        
+        // API 方法 - 调用 Netlify Functions
+        const recordPurchase = async (purchaseData) => {
+          try {
+            const response = await fetch(`${API_BASE}/record-purchase`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(purchaseData)
+            });
+            
+            if (!response.ok) {
+              throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            return await response.json();
+          } catch (err) {
+            console.error('记录购买失败:', err);
+            // 不显示错误给用户，这只是后台记录
+          }
+        };
+        
+        const recordWinner = async (winnerData) => {
+          try {
+            const response = await fetch(`${API_BASE}/record-winner`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(winnerData)
+            });
+            
+            if (!response.ok) {
+              throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            return await response.json();
+          } catch (err) {
+            console.error('记录中奖者失败:', err);
+          }
+        };
+        
+        const loadPurchaseHistory = async () => {
+          if (!account.value) return;
+          
+          loadingHistory.value = true;
+          try {
+            const response = await fetch(`${API_BASE}/purchases?address=${account.value}`);
+            
+            if (response.ok) {
+              const data = await response.json();
+              purchaseHistory.value = data.purchases || [];
+            }
+          } catch (err) {
+            console.error('加载购买历史失败:', err);
+          } finally {
+            loadingHistory.value = false;
+          }
+        };
+        
+        const loadWinners = async () => {
+          loadingWinners.value = true;
+          try {
+            const response = await fetch(`${API_BASE}/winners`);
+            
+            if (response.ok) {
+              const data = await response.json();
+              winners.value = data.winners || [];
+            }
+          } catch (err) {
+            console.error('加载中奖者失败:', err);
+          } finally {
+            loadingWinners.value = false;
+          }
+        };
+        
+        const loadStats = async () => {
+          loadingStats.value = true;
+          try {
+            const response = await fetch(`${API_BASE}/stats`);
+            
+            if (response.ok) {
+              const data = await response.json();
+              stats.value = data.stats || {};
+            }
+          } catch (err) {
+            console.error('加载统计失败:', err);
+          } finally {
+            loadingStats.value = false;
+          }
+        };
+        
+        const loadUserStats = async () => {
+          if (!account.value) return;
+          
+          loadingUserStats.value = true;
+          try {
+            const response = await fetch(`${API_BASE}/user-stats?address=${account.value}`);
+            
+            if (response.ok) {
+              const data = await response.json();
+              userStats.value = data.userStats || {};
+            }
+          } catch (err) {
+            console.error('加载用户统计失败:', err);
+          } finally {
+            loadingUserStats.value = false;
+          }
+        };
+        
+        // 区块链方法
+        const initPublicContract = async () => {
+          try {
+            publicProvider = new ethers.JsonRpcProvider(QUICKNODE_RPC);
+            publicContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, publicProvider);
+            
+            await publicProvider.getNetwork();
+            console.log("RPC连接成功");
+            
+            await loadContractData();
+            
+            refreshInterval = setInterval(async () => {
+              await loadContractData();
+            }, 15000);
+            
+            // 加载数据库数据
+            loadWinners();
+            loadStats();
+            
+            return true;
+          } catch (err) {
+            console.error("RPC连接失败:", err);
+            showTransactionStatus(t.value('networkError'), 'error');
+            return false;
+          }
+        };
+        
+        const loadContractData = async () => {
+          try {
+            if (!publicContract) return;
+            
+            const [
+              tickets,
+              pool,
+              roundInfo,
+              interval,
+              threshold,
+              totalTokensAmount
+            ] = await Promise.all([
+              publicContract.getCurrentRoundTotalTickets().catch(() => 0),
+              publicContract.getCurrentPoolBNB().catch(() => 0),
+              publicContract.getCurrentRoundInfo().catch(() => [0, 0, 0, 0, 2400, false]),
+              publicContract.getBlockInterval().catch(() => 2400),
+              publicContract.getTicketThreshold().catch(() => 1000 * 1e18),
+              publicContract.totalTokens().catch(() => 0)
+            ]);
+            
+            totalTickets.value = Number(tickets);
+            poolBNB.value = Number(ethers.formatEther(pool));
+            totalTokens.value = Number(ethers.formatUnits(totalTokensAmount, 18));
+            
+            if (Array.isArray(roundInfo) && roundInfo.length >= 6) {
+              startBlock.value = Number(roundInfo[3]);
+              currentBlock.value = Number(roundInfo[2]);
+              isRoundActive.value = Boolean(roundInfo[5]);
+            }
+            
+            blockInterval.value = Number(interval);
+            ticketThreshold.value = Number(threshold);
+            
+            if (isRoundActive.value && startBlock.value > 0) {
+              const blocksPassed = currentBlock.value - startBlock.value;
+              blocksRemaining.value = Math.max(0, blockInterval.value - blocksPassed);
+            } else {
+              blocksRemaining.value = blockInterval.value;
+            }
+            
+            if (account.value) {
+              await loadUserData();
+            }
+            
+          } catch (err) {
+            console.error("加载合约数据失败:", err);
+          }
+        };
+        
+        const loadUserData = async () => {
+          try {
+            if (!account.value || !publicContract || !publicProvider) return;
+            
+            const userDataPromises = [
+              loadUserBalance(),
+              loadUserBNBBalance(),
+              publicContract.participantTickets(account.value).catch(() => 0),
+              checkTokenApproval()
+            ];
+            
+            const results = await Promise.all(userDataPromises);
+            userTickets.value = Number(ethers.formatUnits(results[2], 0));
+            
+            // 加载用户特定的数据库数据
+            if (activeTab.value === 'history') {
+              loadPurchaseHistory();
+            }
+            if (activeTab.value === 'stats') {
+              loadUserStats();
+            }
+            
+          } catch (err) {
+            console.error("加载用户数据失败:", err);
+          }
+        };
+        
+        const loadUserBalance = async () => {
+          try {
+            if (!account.value || !publicProvider) return;
+            
+            const tokenContract = new ethers.Contract(PHOENIX_TOKEN, TOKEN_ABI, publicProvider);
+            const balance = await tokenContract.balanceOf(account.value);
+            userBalance.value = Number(ethers.formatUnits(balance, 18));
+          } catch (err) {
+            console.error("加载用户余额失败:", err);
+          }
+        };
+        
+        const loadUserBNBBalance = async () => {
+          try {
+            if (!account.value || !publicProvider) return;
+            
+            const balance = await publicProvider.getBalance(account.value);
+            userBNB.value = Number(ethers.formatEther(balance));
+          } catch (err) {
+            console.error("加载用户BNB余额失败:", err);
+          }
+        };
+        
+        const checkTokenApproval = async () => {
+          try {
+            if (!account.value || !publicProvider) return;
+            
+            const tokenContract = new ethers.Contract(PHOENIX_TOKEN, TOKEN_ABI, publicProvider);
+            const allowance = await tokenContract.allowance(account.value, CONTRACT_ADDRESS);
+            
+            const minAllowance = ticketThreshold.value;
+            isTokenApproved.value = allowance >= minAllowance;
+            
+          } catch (err) {
+            console.error("检查代币授权失败:", err);
+          }
+        };
+        
+        // 钱包连接方法
+        const initiateWalletConnection = async () => {
+          if (!window.ethereum) {
+            alert(t.value('installWallet'));
+            return;
+          }
+          
+          try {
+            isConnecting.value = true;
+            networkStatus.value = 'connecting';
+            
+            const accounts = await window.ethereum.request({ 
+              method: 'eth_requestAccounts' 
+            });
+            
+            if (!accounts || accounts.length === 0) {
+              throw new Error("未获取到账户");
+            }
+            
+            const chainId = await window.ethereum.request({ method: 'eth_chainId' });
+            
+            if (chainId !== BSC_NETWORK.chainId) {
+              networkStatus.value = 'wrong-network';
+              try {
+                await window.ethereum.request({
+                  method: 'wallet_switchEthereumChain',
+                  params: [{ chainId: BSC_NETWORK.chainId }],
+                });
+                networkStatus.value = 'connected';
+              } catch (switchError) {
+                if (switchError.code === 4902) {
+                  try {
+                    await window.ethereum.request({
+                      method: 'wallet_addEthereumChain',
+                      params: [BSC_NETWORK],
+                    });
+                    networkStatus.value = 'connected';
+                  } catch (addError) {
+                    console.error("添加网络失败:", addError);
+                    networkStatus.value = 'wrong-network';
+                    showTransactionStatus(t.value('switchNetwork'), 'error');
+                    return;
+                  }
+                } else {
+                  console.error("切换网络失败:", switchError);
+                  networkStatus.value = 'wrong-network';
+                  showTransactionStatus(t.value('switchNetwork'), 'error');
+                  return;
+                }
+              }
+            } else {
+              networkStatus.value = 'connected';
+            }
+            
+            provider = new ethers.BrowserProvider(window.ethereum);
+            signer = await provider.getSigner();
+            account.value = accounts[0];
+            
+            localStorage.setItem('connectedAccount', account.value);
+            
+            contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+            
+            await loadUserData();
+            
+            showTransactionStatus(
+              `${t.value('connected')}${formatAddress(account.value)}`,
+              'success',
+              3000
+            );
+            
+            setupEventListeners(window.ethereum);
+            
+          } catch (err) {
+            console.error("连接钱包失败:", err);
+            networkStatus.value = 'disconnected';
+            
+            let errorMessage = t.value('connectFailed');
+            if (err.message.includes('User rejected')) {
+              errorMessage = '用户拒绝了连接请求';
+            } else if (err.message.includes('already pending')) {
+              errorMessage = '已有连接请求在处理中，请检查钱包';
+            }
+            
+            showTransactionStatus(errorMessage, 'error');
+          } finally {
+            isConnecting.value = false;
+          }
+        };
+        
+        const setupEventListeners = (providerInstance) => {
+          providerInstance.on('accountsChanged', (accounts) => {
+            if (accounts.length > 0) {
+              account.value = accounts[0];
+              localStorage.setItem('connectedAccount', account.value);
+              loadUserData();
+              showTransactionStatus('账户已切换', 'info', 2000);
+            } else {
+              disconnectWallet();
+            }
+          });
+          
+          providerInstance.on('chainChanged', (chainId) => {
+            if (chainId === BSC_NETWORK.chainId) {
+              networkStatus.value = 'connected';
+              showTransactionStatus(t.value('connectedToBsc'), 'success', 2000);
+            } else {
+              networkStatus.value = 'wrong-network';
+              showTransactionStatus(t.value('wrongNetwork'), 'error');
+            }
+          });
+        };
+        
+        const disconnectWallet = () => {
+          account.value = null;
+          userBalance.value = 0;
+          userBNB.value = 0;
+          userTickets.value = 0;
+          networkStatus.value = 'disconnected';
+          isTokenApproved.value = false;
+          localStorage.removeItem('connectedAccount');
+          
+          provider = null;
+          signer = null;
+          contract = null;
+          
+          showTransactionStatus('已断开钱包连接', 'info', 2000);
+        };
+        
+        const autoConnectWallet = async () => {
+          if (account.value && window.ethereum) {
+            try {
+              isConnecting.value = true;
+              
+              const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+              
+              if (accounts.length > 0 && accounts[0].toLowerCase() === account.value.toLowerCase()) {
+                networkStatus.value = 'connecting';
+                provider = new ethers.BrowserProvider(window.ethereum);
+                signer = await provider.getSigner();
+                contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+                
+                const chainId = await window.ethereum.request({ method: 'eth_chainId' });
+                networkStatus.value = chainId === BSC_NETWORK.chainId ? 'connected' : 'wrong-network';
+                
+                await loadUserData();
+                
+                setupEventListeners(window.ethereum);
+              } else {
+                localStorage.removeItem('connectedAccount');
+                account.value = null;
+              }
+            } catch (err) {
+              console.error("自动连接失败:", err);
+              localStorage.removeItem('connectedAccount');
+              account.value = null;
+              networkStatus.value = 'disconnected';
+            } finally {
+              isConnecting.value = false;
+            }
+          }
+        };
+        
+        // 代币授权
+        const approveToken = async () => {
+          if (approvalInProgress.value || !account.value) return;
+          
+          approvalInProgress.value = true;
+          showTransactionStatus(t.value('approving'), 'info', 0);
+          
+          try {
+            const tokenContract = new ethers.Contract(PHOENIX_TOKEN, TOKEN_ABI, signer);
+            const approveAmount = ethers.MaxUint256;
+            const approveTx = await tokenContract.approve(CONTRACT_ADDRESS, approveAmount);
+            
+            await approveTx.wait();
+            
+            isTokenApproved.value = true;
+            showTransactionStatus('授权成功', 'success');
+            
+          } catch (err) {
+            console.error("代币授权失败:", err);
+            
+            let errorMsg = err.message || "未知错误";
+            if (err.reason) errorMsg = err.reason;
+            if (err.code === 4001) {
+              errorMsg = currentLang.value === 'zh' ? "用户拒绝了授权" : "User rejected approval";
+            }
+            
+            showTransactionStatus(`授权失败: ${errorMsg}`, 'error');
+          } finally {
+            approvalInProgress.value = false;
+          }
+        };
+        
+        // 购买彩票
+        const buyTickets = async () => {
+          if (transactionInProgress.value) return;
+          
+          if (!account.value) {
+            initiateWalletConnection();
+            return;
+          }
+          
+          const tickets = parseInt(ticketAmount.value);
+          
+          if (!tickets || tickets <= 0) {
+            alert(t.value('enterValidNumber'));
+            return;
+          }
+          
+          if (tickets > 1000) {
+            alert(t.value('maxTickets'));
+            return;
+          }
+          
+          const neededTokens = tickets * (ticketThreshold.value / 1e18);
+          if (userBalance.value < neededTokens) {
+            showTransactionStatus(`代币余额不足，需要${neededTokens}焚凰蝶`, 'error');
+            return;
+          }
+          
+          transactionInProgress.value = true;
+          showTransactionStatus(t.value('preparing'), 'info', 0);
+          
+          try {
+            if (!isTokenApproved.value) {
+              await approveToken();
+              if (!isTokenApproved.value) {
+                throw new Error("代币授权失败");
+              }
+            }
+            
+            showTransactionStatus(t.value('purchasing'), 'info', 0);
+            const tx = await contract.deposit(tickets);
+            const receipt = await tx.wait();
+            
+            // 记录购买到数据库
+            const purchaseData = {
+              user_address: account.value,
+              tickets: tickets,
+              amount: neededTokens,
+              transaction_hash: receipt.hash,
+              block_number: receipt.blockNumber,
+              round_id: startBlock.value || currentBlock.value
+            };
+            
+            await recordPurchase(purchaseData);
+            
+            showTransactionStatus(t.value('success'), 'success');
+            
+            // 刷新数据
+            setTimeout(async () => {
+              await loadContractData();
+              loadPurchaseHistory();
+              loadUserStats();
+            }, 3000);
+            
+          } catch (err) {
+            console.error("购买彩票失败:", err);
+            
+            let errorMsg = err.message || "未知错误";
+            if (err.reason) errorMsg = err.reason;
+            if (err.code === 4001) {
+              errorMsg = currentLang.value === 'zh' ? "用户拒绝了交易" : "User rejected transaction";
+            }
+            
+            showTransactionStatus(`${t.value('failed')}${errorMsg}`, 'error');
+          } finally {
+            transactionInProgress.value = false;
+          }
+        };
+        
+        // 生命周期
+        onMounted(async () => {
+          await initPublicContract();
+          await autoConnectWallet();
+        });
+        
+        onUnmounted(() => {
+          if (refreshInterval) clearInterval(refreshInterval);
+        });
+        
+        // 监听标签页变化
+        watch(activeTab, (newTab) => {
+          if (newTab === 'history' && account.value) {
+            loadPurchaseHistory();
+          }
+          if (newTab === 'stats') {
+            loadStats();
+            if (account.value) {
+              loadUserStats();
+            }
+          }
+        });
+        
+        watch(account, (newAccount) => {
+          if (newAccount) {
+            loadUserData();
+          }
+        });
+        
+        return {
+          // 数据
+          currentLang,
+          account,
+          poolBNB,
+          totalTickets,
+          totalTokens,
+          userBalance,
+          userBNB,
+          userTickets,
+          ticketAmount,
+          transactionInProgress,
+          approvalInProgress,
+          loading,
+          loadingText,
+          isConnecting,
+          networkStatus,
+          isTokenApproved,
+          activeTab,
+          startBlock,
+          currentBlock,
+          blockInterval,
+          blocksRemaining,
+          isRoundActive,
+          ticketThreshold,
+          purchaseHistory,
+          winners,
+          stats,
+          userStats,
+          loadingHistory,
+          loadingWinners,
+          loadingStats,
+          loadingUserStats,
+          transactionStatus,
+          
+          // 计算属性
+          canDraw,
+          hasSufficientBalance,
+          t,
+          
+          // 方法
+          switchLanguage,
+          formatAddress,
+          formatNumber,
+          formatDate,
+          formatTimeFromBlocks,
+          setTicketAmount,
+          calculateTotalCost,
+          initiateWalletConnection,
+          approveToken,
+          buyTickets,
+          loadPurchaseHistory,
+          loadWinners,
+          loadStats,
+          loadUserStats
+        };
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>
